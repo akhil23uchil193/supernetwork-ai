@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/auth-helpers-nextjs'
+import { PROFILE_COMPLETION_THRESHOLD } from '@/lib/constants'
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -67,6 +68,21 @@ export async function middleware(request: NextRequest) {
     if (!isAuthenticated) {
       console.log('[middleware] unauthenticated onboarding access → /login')
       return NextResponse.redirect(new URL('/login', request.url))
+    }
+
+    // If the user already has a complete profile, skip onboarding entirely.
+    // Only check on the start page to avoid a DB query on every onboarding step.
+    if (pathname === '/onboarding/start') {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('profile_completion_score')
+        .eq('user_id', session!.user.id)
+        .maybeSingle()
+
+      if (profile && profile.profile_completion_score >= PROFILE_COMPLETION_THRESHOLD) {
+        console.log('[middleware] complete profile hitting /onboarding/start → /dashboard/discover')
+        return NextResponse.redirect(new URL('/dashboard/discover', request.url))
+      }
     }
   }
 

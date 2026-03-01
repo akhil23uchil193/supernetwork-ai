@@ -50,6 +50,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/dashboard/discover`)
   }
 
-  console.log('[auth/callback] incomplete profile → /settings/profile?banner=incomplete')
-  return NextResponse.redirect(`${origin}/settings/profile?banner=incomplete`)
+  console.log('[auth/callback] incomplete profile → /dashboard/discover?banner=incomplete')
+  return NextResponse.redirect(`${origin}/dashboard/discover?banner=incomplete`)
 }

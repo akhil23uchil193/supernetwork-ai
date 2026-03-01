@@ -125,6 +125,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       if (error) {
         console.error('[DashboardLayout] profile fetch error:', error.message)
+        // PGRST116 = no rows — user has no profile yet, send them to onboarding
+        if (error.code === 'PGRST116') {
+          console.log('[DashboardLayout] no profile found → /onboarding/start')
+          router.push('/onboarding/start')
+          return
+        }
       } else {
         console.log('[DashboardLayout] profile:', data?.name)
         setProfile(data as Profile)

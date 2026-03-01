@@ -60,8 +60,8 @@ export default function LoginPage() {
       console.log('[login] profile complete → /dashboard/discover')
       router.push('/dashboard/discover')
     } else {
-      console.log('[login] profile incomplete → /settings/profile with banner')
-      router.push('/settings/profile?banner=incomplete')
+      console.log('[login] profile incomplete → /dashboard/discover with banner')
+      router.push('/dashboard/discover?banner=incomplete')
     }
   }
 
