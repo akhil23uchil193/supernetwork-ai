@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   // Get responder's profile
   const { data: viewerProfile } = await supabase
     .from('profiles')
-    .select('id')
+    .select('id, name')
     .eq('user_id', session.user.id)
     .maybeSingle()
 
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     await supabase.from('notifications').insert({
       user_id: connection.requester_id,
       type: 'connection_request',
-      content: 'Your connection request was accepted',
+      content: `${(viewerProfile as { id: string; name: string | null }).name ?? 'Someone'} accepted your connection request`,
       reference_id: connection_id,
     })
   }

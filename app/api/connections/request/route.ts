@@ -35,6 +35,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Cannot connect with yourself.' }, { status: 400 })
   }
 
+  // Check blocked in either direction
+  const { data: block } = await supabase
+    .from('blocks')
+    .select('id')
+    .or(
+      `and(blocker_id.eq.${viewerProfile.id},blocked_id.eq.${receiver_profile_id}),` +
+      `and(blocker_id.eq.${receiver_profile_id},blocked_id.eq.${viewerProfile.id})`
+    )
+    .maybeSingle()
+
+  if (block) {
+    return NextResponse.json({ success: false, error: 'Cannot connect with this user.' }, { status: 403 })
+  }
+
   // Check for an existing connection in either direction
   const { data: existing } = await supabase
     .from('connections')
@@ -67,7 +81,7 @@ export async function POST(request: NextRequest) {
   await supabase.from('notifications').insert({
     user_id: receiver_profile_id,
     type: 'connection_request',
-    content: `${viewerProfile.name ?? 'Someone'} sent you a connection request`,
+    content: `${viewerProfile.name ?? 'Someone'} wants to connect with you`,
     reference_id: connection.id,
   })
 
