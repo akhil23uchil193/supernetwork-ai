@@ -1,101 +1,122 @@
-import Image from "next/image";
+import Link from 'next/link'
+import { createServerClient } from '@/lib/supabase/server'
+import Navbar from '@/components/navbar'
+import ProfileCard from '@/components/profile-card'
+import type { Profile } from '@/types'
 
-export default function Home() {
+export const revalidate = 60 // ISR: revalidate every 60 seconds
+
+export default async function HomePage() {
+  const supabase = createServerClient()
+
+  // ── Session (determines whether to show the sign-up banner) ──────────────
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+  if (sessionError) console.error('[page] getSession error:', sessionError.message)
+  const isLoggedIn = !!session
+  console.log('[page] rendering landing page, isLoggedIn:', isLoggedIn)
+
+  // ── Fetch 8 showcase profiles ─────────────────────────────────────────────
+  const { data: profiles, error: profilesError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('is_public', true)
+    .order('profile_completion_score', { ascending: false })
+    .limit(8)
+
+  if (profilesError) {
+    console.error('[page] profiles fetch error:', profilesError.message)
+  } else {
+    console.log('[page] fetched', profiles?.length ?? 0, 'showcase profiles')
+  }
+
+  const showcaseProfiles: Profile[] = (profiles as Profile[]) ?? []
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <div className="min-h-screen bg-white">
+      <Navbar />
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      <section className="pt-32 pb-20 px-4 text-center">
+        <div className="max-w-3xl mx-auto">
+          <span className="inline-block text-xs font-semibold tracking-widest text-purple-600 uppercase mb-4">
+            AI-Powered Networking
+          </span>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 leading-tight mb-5">
+            Find Your Perfect{' '}
+            <span className="text-purple-600">Cofounder</span>,{' '}
+            Teammate, or Client
+          </h1>
+          <p className="text-lg sm:text-xl text-slate-500 mb-10 max-w-2xl mx-auto">
+            AI-powered matching based on your Ikigai, skills, and goals. Discover people who
+            complement your vision — not just your résumé.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link
+              href="/?browse=true"
+              className="inline-flex items-center justify-center h-11 px-8 text-base font-medium border border-slate-300 rounded-md bg-white text-slate-900 hover:bg-slate-50 transition-colors shadow-sm"
+            >
+              Browse Profiles
+            </Link>
+            <Link
+              href="/signup"
+              className="inline-flex items-center justify-center h-11 px-8 text-base font-medium rounded-md bg-purple-600 text-white hover:bg-purple-700 transition-colors shadow-sm"
+            >
+              Get Started Free
+            </Link>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </section>
+
+      {/* ── Sign-up banner for guests ─────────────────────────────────────── */}
+      {!isLoggedIn && (
+        <div className="mx-4 sm:mx-6 lg:mx-8 max-w-7xl lg:mx-auto mb-6">
+          <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-100 rounded-xl px-5 py-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between">
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold text-purple-700">Sign up for free</span> to see your
+              AI-matched compatibility score with each person.
+            </p>
+            <Link
+              href="/signup"
+              className="shrink-0 inline-flex items-center justify-center h-8 px-4 text-sm font-medium rounded-md bg-purple-600 text-white hover:bg-purple-700 transition-colors"
+            >
+              Get Started
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ── Discover profiles section ─────────────────────────────────────── */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">Discover People</h2>
+            <p className="text-slate-500 mt-1 text-sm">
+              Explore profiles from builders, creators, and changemakers.
+            </p>
+          </div>
+          {isLoggedIn && (
+            <Link
+              href="/dashboard/discover"
+              className="text-sm font-medium text-purple-600 hover:text-purple-700 transition-colors"
+            >
+              See all →
+            </Link>
+          )}
+        </div>
+
+        {showcaseProfiles.length === 0 ? (
+          <div className="text-center py-16 text-slate-400">
+            <p className="text-lg font-medium">No profiles yet</p>
+            <p className="text-sm mt-1">Check back soon — the community is growing.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {showcaseProfiles.map((profile) => (
+              <ProfileCard key={profile.id} profile={profile} />
+            ))}
+          </div>
+        )}
+      </section>
     </div>
-  );
+  )
 }
