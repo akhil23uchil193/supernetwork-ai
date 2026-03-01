@@ -221,14 +221,20 @@ export default function ReviewPage() {
 
       toast('Profile created! Finding your matches…', 'success')
 
-      // Trigger match computation (fire-and-forget — don't block navigation)
+      // Trigger match computation in background (don't block navigation)
+      console.log('[review] firing match compute for profile_id:', inserted.id)
       fetch('/api/matches/compute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile_id: inserted.id }),
-      }).then((r) => r.json())
-        .then((j) => console.log('[review] matches computed:', j))
-        .catch((e) => console.error('[review] match compute error:', e))
+      }).then(async (res) => {
+        const json = await res.json()
+        if (!res.ok || !json.success) {
+          console.error('[review] match compute FAILED — HTTP', res.status, ':', JSON.stringify(json))
+        } else {
+          console.log('[review] match compute SUCCESS — matches_computed:', json.matches_computed)
+        }
+      }).catch((err) => console.error('[review] match compute fetch error:', err))
 
       // Clean up sessionStorage
       sessionStorage.removeItem('onboarding_data')

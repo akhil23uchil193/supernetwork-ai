@@ -36,22 +36,21 @@ export async function POST(request: NextRequest) {
     messages: [
       {
         role: 'system',
-        content: 'You are an expert professional network matchmaker. Analyze profiles and generate precise matching criteria.',
+        content: "You are an expert at understanding people's professional profiles and what makes great collaborations.",
       },
       {
         role: 'user',
-        content: `Based on this professional profile, generate ideal match criteria. Return ONLY a valid JSON object:
+        content: `Based on this person's profile, generate their ideal collaborator criteria.
+Return ONLY valid JSON matching this exact structure:
 {
-  "required_skills": ["string[] — top 5-8 skills this person needs in a collaborator"],
-  "preferred_domains": ["string[] — 3-5 industry/domain areas they should connect with"],
-  "collaboration_style": "string — one sentence describing their ideal collaboration dynamic",
-  "ideal_intent": ["cofounder" | "teammate" | "client" — list of desired connection types"],
-  "deal_breakers": "string — one sentence about what would make a bad match",
-  "summary": "string — one sentence: who they are and who they are looking for"
+  "required_skills": ["3-5 skills they need in a collaborator"],
+  "preferred_domains": ["2-4 industries or domains"],
+  "collaboration_style": "one sentence describing ideal working dynamic",
+  "ideal_intent": ["what type of collaborator they need: cofounder/teammate/client"],
+  "deal_breakers": "one sentence about what wouldn't work",
+  "summary": "one sentence: 'Looking for a [type] who [description]'"
 }
-
-Profile:
-${profileText}`,
+Profile: ${profileText}`,
       },
     ],
     response_format: { type: 'json_object' },
