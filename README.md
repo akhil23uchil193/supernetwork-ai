@@ -29,7 +29,6 @@ AI-powered networking platform to find cofounders, teammates, and clients based 
 | AI | OpenAI `gpt-4o-mini` |
 | CV parsing | `pdf-parse` + custom URL scraper |
 | Icons | `lucide-react` |
-| Hosting | Vercel (recommended) |
 
 ## Setup
 
@@ -117,7 +116,3 @@ types/                # TypeScript interfaces (Profile, Match, Connection, Messa
 scripts/              # seed.ts and reset.ts (run with ts-node)
 supabase/migrations/  # SQL schema
 ```
-
-## Live Demo
-
-[https://supernetwork-ai.vercel.app](https://supernetwork-ai.vercel.app)
