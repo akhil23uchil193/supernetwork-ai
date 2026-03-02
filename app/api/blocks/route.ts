@@ -4,6 +4,52 @@ import { createServerClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
 
+// ─── DELETE: unblock a user ───────────────────────────────────────────────────
+
+export async function DELETE(request: NextRequest) {
+  const supabase = createServerClient()
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthenticated' }, { status: 401 })
+  }
+
+  let body: { blocked_profile_id?: string }
+  try { body = await request.json() } catch {
+    return NextResponse.json({ success: false, error: 'Invalid JSON body.' }, { status: 400 })
+  }
+
+  const { blocked_profile_id } = body
+  if (!blocked_profile_id) {
+    return NextResponse.json({ success: false, error: 'Missing blocked_profile_id.' }, { status: 400 })
+  }
+
+  const { data: viewerProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('user_id', session.user.id)
+    .maybeSingle()
+
+  if (!viewerProfile) {
+    return NextResponse.json({ success: false, error: 'Your profile was not found.' }, { status: 404 })
+  }
+
+  // RLS "Users can manage own blocks" covers DELETE for the blocker
+  const { error: deleteErr } = await supabase
+    .from('blocks')
+    .delete()
+    .eq('blocker_id', viewerProfile.id)
+    .eq('blocked_id', blocked_profile_id)
+
+  if (deleteErr) {
+    console.error('[blocks] delete error:', deleteErr.message)
+    return NextResponse.json({ success: false, error: deleteErr.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: true })
+}
+
+// ─── POST: block a user ───────────────────────────────────────────────────────
+
 export async function POST(request: NextRequest) {
   const supabase = createServerClient()
   const { data: { session } } = await supabase.auth.getSession()

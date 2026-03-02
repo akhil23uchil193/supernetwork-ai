@@ -267,6 +267,13 @@ export default function ChatPage({ params }: { params: { connectionId: string } 
       setMessages((prev) =>
         prev.map((m) => m.id === optId ? { ...(inserted as MsgRow), isOptimistic: false } : m)
       )
+
+      // Notify the other person (fire and forget)
+      fetch('/api/messages/notify', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ connection_id: connectionId }),
+      }).catch(() => {/* silent */})
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optId))
       setInputText(content)

@@ -133,6 +133,13 @@ export default function NotificationBell({ profileId }: NotificationBellProps) {
     }
   }, [profileId, fetchNotifications, supabase])
 
+  // ── Auto-mark-all-read when dropdown opens ────────────────────────────────
+  useEffect(() => {
+    if (open && unreadCount > 0) {
+      markAllRead()
+    }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Click-outside to close ─────────────────────────────────────────────────
   useEffect(() => {
     function handleOutside(e: MouseEvent) {

@@ -184,6 +184,9 @@ create policy "Users can update own notifications"
     user_id in (select id from profiles where user_id = auth.uid())
   );
 
+create policy "Authenticated users can insert notifications"
+  on notifications for insert with check (auth.uid() is not null);
+
 -- Block policies
 create policy "Users can manage own blocks"
   on blocks for all using (

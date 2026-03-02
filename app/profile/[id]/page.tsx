@@ -11,6 +11,7 @@ import { getMatchWithExplanation } from '@/lib/matches'
 import { cn } from '@/lib/utils'
 import { DICEBEAR_BASE_URL } from '@/lib/constants'
 import ProfileActions from '@/components/profile-actions'
+import ProfileMenu from '@/components/profile-menu'
 import type { ConnectionState } from '@/components/profile-actions'
 import type { Profile, Connection } from '@/types'
 
@@ -189,11 +190,16 @@ export default async function ProfilePage({ params }: { params: { id: string } }
                     </p>
                   )}
                 </div>
-                {/* Owner badge */}
-                {isOwner && (
+                {/* Owner badge / three-dot menu for visitors */}
+                {isOwner ? (
                   <span className="text-xs font-medium bg-slate-100 text-slate-500 px-2.5 py-1 rounded-full shrink-0">
                     Your Profile
                   </span>
+                ) : isLoggedIn && (
+                  <ProfileMenu
+                    targetProfileId={profile.id}
+                    targetName={profile.name ?? 'this person'}
+                  />
                 )}
               </div>
 

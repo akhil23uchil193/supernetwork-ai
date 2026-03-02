@@ -53,12 +53,38 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // ── Fetch badge counts ─────────────────────────────────────────────────────
+  // ── Fetch unread message count (2-step: connections → messages) ───────────
+  const fetchMessageCount = useCallback(async (profileId: string) => {
+    // Step 1: get accepted connection IDs for this profile
+    const { data: conns } = await supabase
+      .from('connections')
+      .select('id')
+      .eq('status', 'accepted')
+      .or(`requester_id.eq.${profileId},receiver_id.eq.${profileId}`)
+
+    const connectionIds = (conns ?? []).map((c: { id: string }) => c.id)
+
+    if (connectionIds.length === 0) {
+      setCounts((prev) => ({ ...prev, unreadMessages: 0 }))
+      return
+    }
+
+    // Step 2: count unread messages from others in those connections
+    const { count, error } = await supabase
+      .from('messages')
+      .select('*', { count: 'exact', head: true })
+      .in('connection_id', connectionIds)
+      .neq('sender_id', profileId)
+      .is('read_at', null)
+
+    if (error) console.error('[DashboardLayout] messages count error:', error.message)
+    setCounts((prev) => ({ ...prev, unreadMessages: count ?? 0 }))
+  }, [supabase])
+
+  // ── Fetch all badge counts ─────────────────────────────────────────────────
   const fetchCounts = useCallback(
     async (profileId: string) => {
-      console.log('[DashboardLayout] fetching badge counts for profile:', profileId)
-
-      const [matchesRes, connectionsRes, messagesRes, notificationsRes] = await Promise.all([
+      const [matchesRes, connectionsRes, notificationsRes] = await Promise.all([
         // Total match count
         supabase
           .from('matches')
@@ -72,13 +98,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           .eq('receiver_id', profileId)
           .eq('status', 'pending'),
 
-        // Unread messages in accepted connections
-        supabase
-          .from('messages')
-          .select('*', { count: 'exact', head: true })
-          .neq('sender_id', profileId)
-          .is('read_at', null),
-
         // Unread notifications
         supabase
           .from('notifications')
@@ -89,19 +108,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       if (matchesRes.error) console.error('[DashboardLayout] matches count error:', matchesRes.error.message)
       if (connectionsRes.error) console.error('[DashboardLayout] connections count error:', connectionsRes.error.message)
-      if (messagesRes.error) console.error('[DashboardLayout] messages count error:', messagesRes.error.message)
       if (notificationsRes.error) console.error('[DashboardLayout] notifications count error:', notificationsRes.error.message)
 
-      const newCounts = {
-        matches: matchesRes.count ?? 0,
-        pendingConnections: connectionsRes.count ?? 0,
-        unreadMessages: messagesRes.count ?? 0,
+      setCounts((prev) => ({
+        ...prev,
+        matches:             matchesRes.count ?? 0,
+        pendingConnections:  connectionsRes.count ?? 0,
         unreadNotifications: notificationsRes.count ?? 0,
-      }
-      console.log('[DashboardLayout] badge counts:', newCounts)
-      setCounts(newCounts)
+      }))
+
+      // Message count needs a 2-step query
+      await fetchMessageCount(profileId)
     },
-    [supabase]
+    [supabase, fetchMessageCount]
   )
 
   // ── Auth + profile + counts ────────────────────────────────────────────────
@@ -143,7 +162,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     init()
   }, [supabase, router, fetchCounts])
 
-  // ── Realtime: notification inserts update badge live ──────────────────────
+  // ── Realtime: notification inserts/updates update badge live ─────────────
   useEffect(() => {
     if (!profile) return
 
@@ -157,15 +176,64 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           table: 'notifications',
           filter: `user_id=eq.${profile.id}`,
         },
-        (payload) => {
-          console.log('[DashboardLayout] new notification realtime:', payload.new)
+        () => {
           setCounts((prev) => ({ ...prev, unreadNotifications: prev.unreadNotifications + 1 }))
         }
       )
-      .subscribe((status) => console.log('[DashboardLayout] realtime status:', status))
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${profile.id}`,
+        },
+        (payload) => {
+          // When read_at goes from null → set, decrement badge
+          const oldRow = payload.old as { read_at: string | null }
+          const newRow = payload.new as { read_at: string | null }
+          if (!oldRow.read_at && newRow.read_at) {
+            setCounts((prev) => ({
+              ...prev,
+              unreadNotifications: Math.max(0, prev.unreadNotifications - 1),
+            }))
+          }
+        }
+      )
+      .subscribe()
 
     return () => { supabase.removeChannel(channel) }
   }, [supabase, profile])
+
+  // ── Pathname-based badge sync ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!profile) return
+    // Visiting notifications page → clear badge immediately
+    if (pathname === '/dashboard/notifications') {
+      setCounts((prev) => ({ ...prev, unreadNotifications: 0 }))
+    }
+  }, [pathname, profile])
+
+  // ── Realtime: message inserts/updates refresh unread count ───────────────
+  useEffect(() => {
+    if (!profile) return
+
+    const channel = supabase
+      .channel(`dash-messages:${profile.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        () => { fetchMessageCount(profile.id) }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        () => { fetchMessageCount(profile.id) }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [supabase, profile, fetchMessageCount])
 
   // ── Close mobile sidebar on route change ──────────────────────────────────
   useEffect(() => { setSidebarOpen(false) }, [pathname])
