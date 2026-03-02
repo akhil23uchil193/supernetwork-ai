@@ -197,3 +197,169 @@ create policy "Users can manage own blocks"
 alter publication supabase_realtime add table messages;
 alter publication supabase_realtime add table notifications;
 alter publication supabase_realtime add table connections;
+
+-- =============================================
+-- BLOCK ENFORCEMENT AT DATABASE LEVEL
+-- =============================================
+
+-- Helper function to get all blocked profile ids (both directions)
+-- Used for: matches, messages, connections, notifications
+-- (anywhere we want mutual hiding)
+CREATE OR REPLACE FUNCTION get_blocked_profile_ids(current_profile_id uuid)
+RETURNS uuid[] AS $$
+  SELECT ARRAY(
+    SELECT blocked_id FROM blocks WHERE blocker_id = current_profile_id
+    UNION
+    SELECT blocker_id FROM blocks WHERE blocked_id = current_profile_id
+  )
+$$ LANGUAGE sql SECURITY DEFINER;
+
+-- Helper function to get profile ids that have blocked the current user (one direction only)
+-- Used for: profiles SELECT policy
+-- The blocker can still see profiles they've blocked (needed for the unblock list),
+-- but someone who blocked you cannot see your profile.
+CREATE OR REPLACE FUNCTION get_profiles_who_blocked_me(current_profile_id uuid)
+RETURNS uuid[] AS $$
+  SELECT ARRAY(
+    SELECT blocker_id FROM blocks WHERE blocked_id = current_profile_id
+  )
+$$ LANGUAGE sql SECURITY DEFINER;
+
+-- Helper to get current user's profile id
+CREATE OR REPLACE FUNCTION get_current_profile_id()
+RETURNS uuid AS $$
+  SELECT id FROM profiles WHERE user_id = auth.uid() LIMIT 1
+$$ LANGUAGE sql SECURITY DEFINER;
+
+-- =============================================
+-- MATCHES: blocked users don't appear in matches
+-- =============================================
+DROP POLICY IF EXISTS "Users can view own matches" ON matches;
+CREATE POLICY "Users can view own matches"
+  ON matches FOR SELECT USING (
+    user_id = get_current_profile_id()
+    AND matched_profile_id != ALL(
+      get_blocked_profile_ids(get_current_profile_id())
+    )
+  );
+
+-- =============================================
+-- MESSAGES: blocked users cannot send messages
+-- =============================================
+DROP POLICY IF EXISTS "Users can insert messages in their connections" ON messages;
+CREATE POLICY "Users can insert messages in their connections"
+  ON messages FOR INSERT WITH CHECK (
+    -- Must be part of the connection
+    connection_id IN (
+      SELECT id FROM connections WHERE
+        status = 'accepted' AND (
+          requester_id = get_current_profile_id() OR
+          receiver_id = get_current_profile_id()
+        )
+    )
+    -- Sender must not be blocked by receiver
+    AND sender_id != ALL(
+      get_blocked_profile_ids(get_current_profile_id())
+    )
+    -- Cannot send to someone who blocked you
+    AND get_current_profile_id() != ALL(
+      get_blocked_profile_ids(
+        (SELECT 
+          CASE 
+            WHEN requester_id = get_current_profile_id() THEN receiver_id
+            ELSE requester_id
+          END
+        FROM connections WHERE id = connection_id)
+      )
+    )
+  );
+
+-- =============================================
+-- MESSAGES: blocked users messages not visible
+-- =============================================
+DROP POLICY IF EXISTS "Users can view messages in their connections" ON messages;
+CREATE POLICY "Users can view messages in their connections"
+  ON messages FOR SELECT USING (
+    connection_id IN (
+      SELECT id FROM connections WHERE
+        requester_id = get_current_profile_id() OR
+        receiver_id = get_current_profile_id()
+    )
+    -- Don't show messages from blocked users
+    AND sender_id != ALL(
+      get_blocked_profile_ids(get_current_profile_id())
+    )
+  );
+
+-- =============================================
+-- NOTIFICATIONS: don't show from blocked users
+-- =============================================
+DROP POLICY IF EXISTS "Users can view own notifications" ON notifications;
+CREATE POLICY "Users can view own notifications"
+  ON notifications FOR SELECT USING (
+    user_id = get_current_profile_id()
+    AND (
+      reference_id IS NULL
+      OR reference_id != ALL(
+        get_blocked_profile_ids(get_current_profile_id())
+      )
+    )
+  );
+
+-- =============================================
+-- CONNECTIONS: blocked users can't send requests
+-- =============================================
+DROP POLICY IF EXISTS "Users can insert connections" ON connections;
+CREATE POLICY "Users can insert connections"
+  ON connections FOR INSERT WITH CHECK (
+    requester_id = get_current_profile_id()
+    -- Cannot connect with blocked users
+    AND receiver_id != ALL(
+      get_blocked_profile_ids(get_current_profile_id())
+    )
+  );
+
+-- =============================================
+-- PROFILES: block enforcement via SECURITY DEFINER functions.
+-- Using raw "SELECT ... FROM blocks" inside a profiles policy causes
+-- infinite recursion: profiles RLS → blocks RLS → profiles RLS.
+-- SECURITY DEFINER functions bypass RLS internally, breaking the cycle.
+-- =============================================
+DROP POLICY IF EXISTS "Public profiles viewable by everyone" ON profiles;
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
+
+CREATE POLICY "Public profiles viewable by everyone"
+  ON profiles FOR SELECT USING (
+    is_public = true
+    AND (
+      auth.uid() IS NULL
+      OR id != ALL(get_profiles_who_blocked_me(get_current_profile_id()))
+    )
+  );
+
+CREATE POLICY "Users can view own profile"
+  ON profiles FOR SELECT USING (auth.uid() = user_id);
+
+-- =============================================
+-- MESSAGES: re-apply INSERT policy with block guard
+-- (ensures blocked users cannot send messages even if they bypass
+-- the connection check somehow)
+-- =============================================
+DROP POLICY IF EXISTS "Users can insert messages in their connections" ON messages;
+CREATE POLICY "Users can insert messages in their connections"
+  ON messages FOR INSERT WITH CHECK (
+    connection_id IN (
+      SELECT id FROM connections WHERE
+        status = 'accepted' AND (
+          requester_id = get_current_profile_id() OR
+          receiver_id = get_current_profile_id()
+        )
+    )
+    AND (
+      SELECT CASE
+        WHEN c.requester_id = get_current_profile_id() THEN c.receiver_id
+        ELSE c.requester_id
+      END
+      FROM connections c WHERE c.id = connection_id
+    ) != ALL(get_blocked_profile_ids(get_current_profile_id()))
+  );

@@ -12,8 +12,9 @@ import type { Profile } from '@/types'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface BlockedUser {
-  blockId:  string
-  profile:  Profile
+  blockId:   string
+  blockedId: string
+  profile:   Profile | null
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -44,29 +45,30 @@ export default function PrivacyPage() {
     if (!profile) { setLoading(false); return }
     setIsPublic(profile.is_public ?? true)
 
-    // Fetch blocks with joined blocked profile
-    const { data: blocks } = await supabase
+    // Step 1: fetch block records (id + blocked_id only) — avoids RLS join issues
+    const { data: blockRecords } = await supabase
       .from('blocks')
-      .select(`
-        id,
-        blocked:profiles!blocked_id(
-          id, name, image_url, bio, intent, skills, availability,
-          working_style, is_public, portfolio_url, linkedin_url,
-          github_url, twitter_url, interests, cv_url, user_id,
-          ikigai_love, ikigai_good_at, ikigai_world_needs, ikigai_paid_for, ikigai_mission,
-          profile_completion_score, match_criteria, created_at, updated_at
-        )
-      `)
+      .select('id, blocked_id')
       .eq('blocker_id', profile.id)
       .order('created_at', { ascending: false })
 
-    type RawBlock = { id: string; blocked: Profile }
-    setBlockedUsers(
-      ((blocks ?? []) as unknown as RawBlock[]).map((b) => ({
-        blockId: b.id,
-        profile: b.blocked,
-      }))
+    // Step 2: fetch each blocked profile individually (may be null if RLS still hides it)
+    type BlockedProfile = Pick<Profile, 'id' | 'name' | 'image_url' | 'intent'>
+    const blockedUsersData: BlockedUser[] = await Promise.all(
+      (blockRecords ?? []).map(async (block) => {
+        const { data: blockedProfile } = await supabase
+          .from('profiles')
+          .select('id, name, image_url, intent')
+          .eq('id', block.blocked_id)
+          .maybeSingle()
+        return {
+          blockId:   block.id,
+          blockedId: block.blocked_id,
+          profile:   blockedProfile as BlockedProfile | null,
+        }
+      })
     )
+    setBlockedUsers(blockedUsersData)
 
     setLoading(false)
   }, [router])
@@ -105,18 +107,18 @@ export default function PrivacyPage() {
   }
 
   // ── Unblock ────────────────────────────────────────────────────────────────
-  async function handleUnblock(profileId: string, name: string) {
-    setUnblockingId(profileId)
+  async function handleUnblock(blockedId: string, name: string) {
+    setUnblockingId(blockedId)
     try {
       const res = await fetch('/api/blocks', {
         method:  'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ blocked_profile_id: profileId }),
+        body:    JSON.stringify({ blocked_profile_id: blockedId }),
       })
       const json = await res.json()
       if (!res.ok || !json.success) throw new Error(json.error ?? 'Failed to unblock')
-      setBlockedUsers((prev) => prev.filter((b) => b.profile.id !== profileId))
-      toast(`${name} has been unblocked.`, 'success')
+      setBlockedUsers((prev) => prev.filter((b) => b.blockedId !== blockedId))
+      toast(`${name} unblocked.`, 'success')
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to unblock', 'error')
     } finally {
@@ -242,10 +244,34 @@ export default function PrivacyPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {blockedUsers.map((b) => {
-              const p      = b.profile
+              const p    = b.profile
+              const busy = unblockingId === b.blockedId
+
+              // Fallback row when profile is hidden by RLS or was deleted
+              if (!p) {
+                return (
+                  <div
+                    key={b.blockId}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0 flex items-center justify-center">
+                      <UserX className="w-4 h-4 text-slate-400" />
+                    </div>
+                    <p className="flex-1 text-sm text-slate-400 italic">Blocked user</p>
+                    <button
+                      onClick={() => handleUnblock(b.blockedId, 'this user')}
+                      disabled={busy}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-50 transition-colors shrink-0"
+                    >
+                      <UserX className="w-3.5 h-3.5" />
+                      {busy ? 'Unblocking…' : 'Unblock'}
+                    </button>
+                  </div>
+                )
+              }
+
               const avatar = p.image_url
                 ?? `${DICEBEAR_BASE_URL}${encodeURIComponent(p.name ?? p.id)}`
-              const busy = unblockingId === p.id
 
               return (
                 <div
@@ -258,11 +284,25 @@ export default function PrivacyPage() {
                     alt={p.name ?? ''}
                     className="w-10 h-10 rounded-full object-cover bg-slate-200 shrink-0"
                   />
-                  <p className="flex-1 text-sm font-medium text-slate-700 truncate min-w-0">
-                    {p.name ?? 'Unknown User'}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-700 truncate">
+                      {p.name ?? 'Unknown User'}
+                    </p>
+                    {p.intent && p.intent.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {p.intent.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-200 text-slate-500 capitalize"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <button
-                    onClick={() => handleUnblock(p.id, p.name ?? 'this user')}
+                    onClick={() => handleUnblock(b.blockedId, p.name ?? 'this user')}
                     disabled={busy}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-50 transition-colors shrink-0"
                   >

@@ -57,14 +57,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: updateErr.message }, { status: 500 })
   }
 
-  // Notify requester when accepted
+  // Notify requester when accepted — skip if a block exists in either direction
   if (action === 'accept') {
-    await supabase.from('notifications').insert({
-      user_id: connection.requester_id,
-      type: 'connection_request',
-      content: `${(viewerProfile as { id: string; name: string | null }).name ?? 'Someone'} accepted your connection request`,
-      reference_id: connection_id,
-    })
+    const { data: blockForNotif } = await supabase
+      .from('blocks')
+      .select('id')
+      .or(
+        `and(blocker_id.eq.${viewerProfile.id},blocked_id.eq.${connection.requester_id}),` +
+        `and(blocker_id.eq.${connection.requester_id},blocked_id.eq.${viewerProfile.id})`
+      )
+      .maybeSingle()
+
+    if (!blockForNotif) {
+      await supabase.from('notifications').insert({
+        user_id: connection.requester_id,
+        type: 'connection_request',
+        content: `${(viewerProfile as { id: string; name: string | null }).name ?? 'Someone'} accepted your connection request`,
+        reference_id: connection_id,
+      })
+    }
   }
 
   return NextResponse.json({ success: true })

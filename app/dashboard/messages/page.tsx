@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MessageCircle } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { cn } from '@/lib/utils'
+import { cn, getBlockedProfileIds } from '@/lib/utils'
 import { DICEBEAR_BASE_URL } from '@/lib/constants'
 import type { Profile } from '@/types'
 
@@ -59,105 +59,115 @@ export default function MessagesPage() {
     setLoading(true)
     const supabase = createBrowserClient()
 
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { router.push('/login'); return }
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { router.push('/login'); return }
 
-    const { data: vp } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('user_id', session.user.id)
-      .maybeSingle()
+      const { data: vp } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_id', session.user.id)
+        .maybeSingle()
 
-    if (!vp) { setLoading(false); return }
-    const vpId = vp.id
-    viewerIdRef.current = vpId
+      if (!vp) return
+      const vpId = vp.id
+      viewerIdRef.current = vpId
 
-    // Fetch accepted connections (both directions) with joined other profile
-    type RawConn = { id: string; created_at: string; other_profile: Profile }
+      // Fetch accepted connections (both directions) with joined other profile
+      type RawConn = { id: string; created_at: string; other_profile: Profile | null }
 
-    const [asRequesterRes, asReceiverRes] = await Promise.all([
-      supabase
-        .from('connections')
-        .select(`
-          id, created_at,
-          other_profile:profiles!receiver_id(
-            id, name, image_url, bio, intent, skills, availability,
-            working_style, is_public, portfolio_url, linkedin_url,
-            github_url, twitter_url, interests, cv_url, user_id,
-            ikigai_love, ikigai_good_at, ikigai_world_needs, ikigai_paid_for, ikigai_mission,
-            profile_completion_score, match_criteria, created_at, updated_at
-          )
-        `)
-        .eq('requester_id', vpId)
-        .eq('status', 'accepted'),
+      const [asRequesterRes, asReceiverRes] = await Promise.all([
+        supabase
+          .from('connections')
+          .select(`
+            id, created_at,
+            other_profile:profiles!receiver_id(
+              id, name, image_url, bio, intent, skills, availability,
+              working_style, is_public, portfolio_url, linkedin_url,
+              github_url, twitter_url, interests, cv_url, user_id,
+              ikigai_love, ikigai_good_at, ikigai_world_needs, ikigai_paid_for, ikigai_mission,
+              profile_completion_score, match_criteria, created_at, updated_at
+            )
+          `)
+          .eq('requester_id', vpId)
+          .eq('status', 'accepted'),
 
-      supabase
-        .from('connections')
-        .select(`
-          id, created_at,
-          other_profile:profiles!requester_id(
-            id, name, image_url, bio, intent, skills, availability,
-            working_style, is_public, portfolio_url, linkedin_url,
-            github_url, twitter_url, interests, cv_url, user_id,
-            ikigai_love, ikigai_good_at, ikigai_world_needs, ikigai_paid_for, ikigai_mission,
-            profile_completion_score, match_criteria, created_at, updated_at
-          )
-        `)
-        .eq('receiver_id', vpId)
-        .eq('status', 'accepted'),
-    ])
+        supabase
+          .from('connections')
+          .select(`
+            id, created_at,
+            other_profile:profiles!requester_id(
+              id, name, image_url, bio, intent, skills, availability,
+              working_style, is_public, portfolio_url, linkedin_url,
+              github_url, twitter_url, interests, cv_url, user_id,
+              ikigai_love, ikigai_good_at, ikigai_world_needs, ikigai_paid_for, ikigai_mission,
+              profile_completion_score, match_criteria, created_at, updated_at
+            )
+          `)
+          .eq('receiver_id', vpId)
+          .eq('status', 'accepted'),
+      ])
 
-    const allConns: RawConn[] = [
-      ...((asRequesterRes.data ?? []) as unknown as RawConn[]),
-      ...((asReceiverRes.data ?? []) as unknown as RawConn[]),
-    ]
+      const blockedArr = await getBlockedProfileIds(supabase, vpId)
+      const blockedSet = new Set(blockedArr)
 
-    if (allConns.length === 0) {
-      setConversations([])
+      const allConns = ([
+        ...((asRequesterRes.data ?? []) as unknown as RawConn[]),
+        ...((asReceiverRes.data ?? []) as unknown as RawConn[]),
+      ] as RawConn[]).filter(
+        (c): c is RawConn & { other_profile: Profile } =>
+          c.other_profile !== null && !blockedSet.has(c.other_profile.id)
+      )
+
+      if (allConns.length === 0) {
+        setConversations([])
+        return
+      }
+
+      const connectionIds = allConns.map((c) => c.id)
+
+      // Fetch latest messages across all connections for previews + unread counts
+      const { data: messages } = await supabase
+        .from('messages')
+        .select('id, content, created_at, sender_id, read_at, connection_id')
+        .in('connection_id', connectionIds)
+        .order('created_at', { ascending: false })
+        .limit(500)
+
+      // Group client-side: latest message + unread count per connection
+      const latestByConn = new Map<string, MsgPreview>()
+      const unreadByConn = new Map<string, number>()
+      for (const id of connectionIds) { unreadByConn.set(id, 0) }
+
+      for (const msg of (messages ?? []) as MsgPreview[]) {
+        if (!latestByConn.has(msg.connection_id)) {
+          latestByConn.set(msg.connection_id, msg)
+        }
+        if (msg.sender_id !== vpId && !msg.read_at) {
+          unreadByConn.set(msg.connection_id, (unreadByConn.get(msg.connection_id) ?? 0) + 1)
+        }
+      }
+
+      const rows: ConversationRow[] = allConns.map((conn) => ({
+        connection_id:         conn.id,
+        connection_created_at: conn.created_at,
+        other_profile:         conn.other_profile,
+        last_message:          latestByConn.get(conn.id) ?? null,
+        unread_count:          unreadByConn.get(conn.id) ?? 0,
+      }))
+
+      rows.sort((a, b) => {
+        const aTime = a.last_message?.created_at ?? a.connection_created_at
+        const bTime = b.last_message?.created_at ?? b.connection_created_at
+        return new Date(bTime).getTime() - new Date(aTime).getTime()
+      })
+
+      setConversations(rows)
+    } catch (err) {
+      console.error('[MessagesPage] fetchInbox error:', err)
+    } finally {
       setLoading(false)
-      return
     }
-
-    const connectionIds = allConns.map((c) => c.id)
-
-    // Fetch latest messages across all connections for previews + unread counts
-    const { data: messages } = await supabase
-      .from('messages')
-      .select('id, content, created_at, sender_id, read_at, connection_id')
-      .in('connection_id', connectionIds)
-      .order('created_at', { ascending: false })
-      .limit(500)
-
-    // Group client-side: latest message + unread count per connection
-    const latestByConn = new Map<string, MsgPreview>()
-    const unreadByConn = new Map<string, number>()
-    for (const id of connectionIds) { unreadByConn.set(id, 0) }
-
-    for (const msg of (messages ?? []) as MsgPreview[]) {
-      if (!latestByConn.has(msg.connection_id)) {
-        latestByConn.set(msg.connection_id, msg)
-      }
-      if (msg.sender_id !== vpId && !msg.read_at) {
-        unreadByConn.set(msg.connection_id, (unreadByConn.get(msg.connection_id) ?? 0) + 1)
-      }
-    }
-
-    const rows: ConversationRow[] = allConns.map((conn) => ({
-      connection_id:         conn.id,
-      connection_created_at: conn.created_at,
-      other_profile:         conn.other_profile,
-      last_message:          latestByConn.get(conn.id) ?? null,
-      unread_count:          unreadByConn.get(conn.id) ?? 0,
-    }))
-
-    rows.sort((a, b) => {
-      const aTime = a.last_message?.created_at ?? a.connection_created_at
-      const bTime = b.last_message?.created_at ?? b.connection_created_at
-      return new Date(bTime).getTime() - new Date(aTime).getTime()
-    })
-
-    setConversations(rows)
-    setLoading(false)
   }, [router])
 
   useEffect(() => { fetchInbox() }, [fetchInbox])

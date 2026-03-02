@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { toast } from '@/components/ui/toaster'
-import { cn } from '@/lib/utils'
+import { cn, getBlockedProfileIds } from '@/lib/utils'
 import { DICEBEAR_BASE_URL } from '@/lib/constants'
 import type { Profile } from '@/types'
 
@@ -324,81 +324,94 @@ export default function ConnectionsPage() {
     setLoading(true)
     const supabase = createBrowserClient()
 
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { router.push('/login'); return }
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { router.push('/login'); return }
 
-    const { data: vp } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('user_id', session.user.id)
-      .maybeSingle()
+      const { data: vp } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_id', session.user.id)
+        .maybeSingle()
 
-    if (!vp) { setLoading(false); return }
-    const vpId = vp.id
+      if (!vp) return
+      const vpId = vp.id
 
-    // Two parallel queries: connections as requester and as receiver
-    const [asRequesterRes, asReceiverRes] = await Promise.all([
-      supabase
-        .from('connections')
-        .select(`
-          id, requester_id, receiver_id, status, created_at,
-          other_profile:profiles!receiver_id(
-            id, name, image_url, bio, intent, skills, availability,
-            working_style, is_public, portfolio_url, linkedin_url,
-            github_url, twitter_url, interests, cv_url, user_id,
-            ikigai_love, ikigai_good_at, ikigai_world_needs, ikigai_paid_for, ikigai_mission,
-            profile_completion_score, match_criteria, created_at, updated_at
-          )
-        `)
-        .eq('requester_id', vpId)
-        .neq('status', 'rejected'),
+      // Fetch blocked IDs (bidirectional) and connections in parallel
+      const blockedArr = await getBlockedProfileIds(supabase, vpId)
+      const blockedSet = new Set(blockedArr)
 
-      supabase
-        .from('connections')
-        .select(`
-          id, requester_id, receiver_id, status, created_at,
-          other_profile:profiles!requester_id(
-            id, name, image_url, bio, intent, skills, availability,
-            working_style, is_public, portfolio_url, linkedin_url,
-            github_url, twitter_url, interests, cv_url, user_id,
-            ikigai_love, ikigai_good_at, ikigai_world_needs, ikigai_paid_for, ikigai_mission,
-            profile_completion_score, match_criteria, created_at, updated_at
-          )
-        `)
-        .eq('receiver_id', vpId)
-        .neq('status', 'rejected'),
-    ])
+      // Two parallel queries: connections as requester and as receiver
+      const [asRequesterRes, asReceiverRes] = await Promise.all([
+        supabase
+          .from('connections')
+          .select(`
+            id, requester_id, receiver_id, status, created_at,
+            other_profile:profiles!receiver_id(
+              id, name, image_url, bio, intent, skills, availability,
+              working_style, is_public, portfolio_url, linkedin_url,
+              github_url, twitter_url, interests, cv_url, user_id,
+              ikigai_love, ikigai_good_at, ikigai_world_needs, ikigai_paid_for, ikigai_mission,
+              profile_completion_score, match_criteria, created_at, updated_at
+            )
+          `)
+          .eq('requester_id', vpId)
+          .neq('status', 'rejected'),
 
-    type RawRow = {
-      id: string
-      requester_id: string
-      receiver_id: string
-      status: string
-      created_at: string
-      other_profile: Profile
+        supabase
+          .from('connections')
+          .select(`
+            id, requester_id, receiver_id, status, created_at,
+            other_profile:profiles!requester_id(
+              id, name, image_url, bio, intent, skills, availability,
+              working_style, is_public, portfolio_url, linkedin_url,
+              github_url, twitter_url, interests, cv_url, user_id,
+              ikigai_love, ikigai_good_at, ikigai_world_needs, ikigai_paid_for, ikigai_mission,
+              profile_completion_score, match_criteria, created_at, updated_at
+            )
+          `)
+          .eq('receiver_id', vpId)
+          .neq('status', 'rejected'),
+      ])
+
+      type RawRow = {
+        id: string
+        requester_id: string
+        receiver_id: string
+        status: string
+        created_at: string
+        other_profile: Profile | null
+      }
+
+      const asSent     = ((asRequesterRes.data ?? []) as unknown as RawRow[]).map((r) => ({
+        ...r,
+        status: r.status as ConnRow['status'],
+        i_am:   'requester' as const,
+      }))
+      const asReceived = ((asReceiverRes.data ?? []) as unknown as RawRow[]).map((r) => ({
+        ...r,
+        status: r.status as ConnRow['status'],
+        i_am:   'receiver' as const,
+      }))
+
+      // Filter out null profiles (RLS-hidden or deleted) and blocked profiles
+      const all = ([...asSent, ...asReceived] as (RawRow & { status: ConnRow['status']; i_am: 'requester' | 'receiver' })[])
+        .filter((c): c is ConnRow & { i_am: 'requester' | 'receiver' } =>
+          c.other_profile !== null && !blockedSet.has(c.other_profile.id)
+        )
+
+      setReceived(all.filter((c) => c.i_am === 'receiver' && c.status === 'pending'))
+      setSent(all.filter((c) => c.i_am === 'requester' && c.status === 'pending'))
+      setConnected(
+        all
+          .filter((c) => c.status === 'accepted')
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      )
+    } catch (err) {
+      console.error('[ConnectionsPage] fetchConnections error:', err)
+    } finally {
+      setLoading(false)
     }
-
-    const asSent     = ((asRequesterRes.data ?? []) as unknown as RawRow[]).map((r) => ({
-      ...r,
-      status:       r.status as ConnRow['status'],
-      i_am:         'requester' as const,
-    }))
-    const asReceived = ((asReceiverRes.data ?? []) as unknown as RawRow[]).map((r) => ({
-      ...r,
-      status:       r.status as ConnRow['status'],
-      i_am:         'receiver' as const,
-    }))
-
-    const all = [...asSent, ...asReceived]
-
-    setReceived(all.filter((c) => c.i_am === 'receiver' && c.status === 'pending'))
-    setSent(all.filter((c) => c.i_am === 'requester' && c.status === 'pending'))
-    setConnected(
-      all
-        .filter((c) => c.status === 'accepted')
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    )
-    setLoading(false)
   }, [router])
 
   useEffect(() => { fetchConnections() }, [fetchConnections])

@@ -95,6 +95,18 @@ export default async function ProfilePage({ params }: { params: { id: string } }
     viewerProfileId = vp?.id ?? null
 
     if (viewerProfileId) {
+      // Check for block in either direction — blocked profiles are inaccessible
+      const { data: blockCheck } = await admin
+        .from('blocks')
+        .select('id')
+        .or(
+          `and(blocker_id.eq.${viewerProfileId},blocked_id.eq.${profile.id}),` +
+          `and(blocker_id.eq.${profile.id},blocked_id.eq.${viewerProfileId})`
+        )
+        .maybeSingle()
+
+      if (blockCheck) notFound()
+
       const [matchResult, connResult] = await Promise.all([
         getMatchWithExplanation(viewerProfileId, profile.id),
         admin

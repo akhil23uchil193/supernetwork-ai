@@ -11,13 +11,14 @@ import {
   MessageCircle,
   Bell,
   Settings,
+  Shield,
   Menu,
   X,
   LogOut,
 } from 'lucide-react'
 
 import { createBrowserClient } from '@/lib/supabase/client'
-import { cn } from '@/lib/utils'
+import { cn, getBlockedProfileIds } from '@/lib/utils'
 import type { Profile } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -55,14 +56,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // ── Fetch unread message count (2-step: connections → messages) ───────────
   const fetchMessageCount = useCallback(async (profileId: string) => {
-    // Step 1: get accepted connection IDs for this profile
-    const { data: conns } = await supabase
-      .from('connections')
-      .select('id')
-      .eq('status', 'accepted')
-      .or(`requester_id.eq.${profileId},receiver_id.eq.${profileId}`)
+    // Step 1: get accepted connection IDs, excluding blocked users
+    const [blockedArr, { data: conns }] = await Promise.all([
+      getBlockedProfileIds(supabase, profileId),
+      supabase
+        .from('connections')
+        .select('id, requester_id, receiver_id')
+        .eq('status', 'accepted')
+        .or(`requester_id.eq.${profileId},receiver_id.eq.${profileId}`),
+    ])
 
-    const connectionIds = (conns ?? []).map((c: { id: string }) => c.id)
+    const blockedSet = new Set(blockedArr)
+
+    const connectionIds = (conns ?? [])
+      .filter((c: { id: string; requester_id: string; receiver_id: string }) => {
+        const otherId = c.requester_id === profileId ? c.receiver_id : c.requester_id
+        return !blockedSet.has(otherId)
+      })
+      .map((c: { id: string }) => c.id)
 
     if (connectionIds.length === 0) {
       setCounts((prev) => ({ ...prev, unreadMessages: 0 }))
@@ -255,8 +266,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { label: 'Notifications', href: '/dashboard/notifications', icon: <Bell className="w-4 h-4" />,   badge: counts.unreadNotifications },
   ]
 
-  const bottomItems: NavItem[] = [
-    { label: 'Settings', href: '/settings/profile', icon: <Settings className="w-4 h-4" /> },
+  const settingsItems: NavItem[] = [
+    { label: 'Edit Profile',       href: '/settings/profile', icon: <Settings className="w-4 h-4" /> },
+    { label: 'Privacy & Blocking', href: '/settings/privacy', icon: <Shield className="w-4 h-4" />   },
   ]
 
   if (loading) {
@@ -322,11 +334,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div className="my-2 border-t border-slate-100" />
 
-          {bottomItems.map((item) => (
+          <p className="px-3 pt-1 pb-0.5 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
+            Settings
+          </p>
+          {settingsItems.map((item) => (
             <SidebarLink
               key={item.href}
               item={item}
-              active={pathname.startsWith('/settings')}
+              active={pathname === item.href}
             />
           ))}
         </nav>

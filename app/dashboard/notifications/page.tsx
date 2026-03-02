@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { UserPlus, MessageCircle, Sparkles, Bell, Check } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { toast } from '@/components/ui/toaster'
-import { cn } from '@/lib/utils'
+import { cn, getBlockedProfileIds } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,6 +78,7 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<NotifRow[]>([])
   const [loading,       setLoading]       = useState(true)
   const [profileId,     setProfileId]     = useState<string | null>(null)
+  const blockedSetRef                     = useRef<Set<string>>(new Set())
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchNotifications = useCallback(async () => {
@@ -96,14 +97,28 @@ export default function NotificationsPage() {
     if (!vp) { setLoading(false); return }
     setProfileId(vp.id)
 
-    const { data } = await supabase
-      .from('notifications')
-      .select('id, type, content, reference_id, read_at, created_at')
-      .eq('user_id', vp.id)
-      .order('created_at', { ascending: false })
-      .limit(100)
+    const [blockedArr, { data }] = await Promise.all([
+      getBlockedProfileIds(supabase, vp.id),
+      supabase
+        .from('notifications')
+        .select('id, type, content, reference_id, read_at, created_at')
+        .eq('user_id', vp.id)
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ])
 
-    setNotifications((data ?? []) as NotifRow[])
+    const blocked = new Set(blockedArr)
+    blockedSetRef.current = blocked
+
+    // Filter out connection_request and match notifications from blocked profiles
+    const filtered = (data ?? []).filter((n: NotifRow) => {
+      if ((n.type === 'connection_request' || n.type === 'match') && n.reference_id) {
+        return !blocked.has(n.reference_id)
+      }
+      return true
+    })
+
+    setNotifications(filtered as NotifRow[])
     setLoading(false)
   }, [router])
 
@@ -143,7 +158,11 @@ export default function NotificationsPage() {
           filter: `user_id=eq.${profileId}`,
         },
         (payload) => {
-          setNotifications((prev) => [payload.new as NotifRow, ...prev])
+          const n = payload.new as NotifRow
+          if ((n.type === 'connection_request' || n.type === 'match') && n.reference_id) {
+            if (blockedSetRef.current.has(n.reference_id)) return
+          }
+          setNotifications((prev) => [n, ...prev])
         }
       )
       .subscribe()

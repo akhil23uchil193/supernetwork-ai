@@ -92,6 +92,7 @@ export default function ChatPage({ params }: { params: { connectionId: string } 
   const [loading,       setLoading]       = useState(true)
   const [notFound,      setNotFound]      = useState(false)
   const [notAccepted,   setNotAccepted]   = useState(false)
+  const [isBlocked,     setIsBlocked]     = useState(false)
   const [inputText,     setInputText]     = useState('')
   const [sending,       setSending]       = useState(false)
 
@@ -157,7 +158,20 @@ export default function ChatPage({ params }: { params: { connectionId: string } 
       setNotFound(true); setLoading(false); return
     }
 
-    setOtherProfile(raw.requester_id === vpId ? raw.receiver : raw.requester)
+    const otherProfileData = raw.requester_id === vpId ? raw.receiver : raw.requester
+    setOtherProfile(otherProfileData)
+
+    // Check if either party has blocked the other
+    const { data: blockCheck } = await supabase
+      .from('blocks')
+      .select('id')
+      .or(
+        `and(blocker_id.eq.${vpId},blocked_id.eq.${otherProfileData.id}),` +
+        `and(blocker_id.eq.${otherProfileData.id},blocked_id.eq.${vpId})`
+      )
+      .maybeSingle()
+
+    if (blockCheck) { setIsBlocked(true); setLoading(false); return }
 
     if (raw.status !== 'accepted') {
       setNotAccepted(true); setLoading(false); return
@@ -190,7 +204,7 @@ export default function ChatPage({ params }: { params: { connectionId: string } 
 
   // ── Realtime subscription ──────────────────────────────────────────────────
   useEffect(() => {
-    if (loading || notFound || notAccepted) return
+    if (loading || notFound || notAccepted || isBlocked) return
 
     const supabase = createBrowserClient()
 
@@ -226,7 +240,7 @@ export default function ChatPage({ params }: { params: { connectionId: string } 
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [loading, notFound, notAccepted, connectionId])
+  }, [loading, notFound, notAccepted, isBlocked, connectionId])
 
   // ── Send message ───────────────────────────────────────────────────────────
   async function sendMessage() {
@@ -297,6 +311,21 @@ export default function ChatPage({ params }: { params: { connectionId: string } 
   }
 
   // ── Error states ───────────────────────────────────────────────────────────
+  if (!loading && isBlocked) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <AlertCircle className="w-8 h-8 text-slate-400 mb-3" />
+        <h3 className="text-base font-semibold text-slate-700">This conversation is unavailable</h3>
+        <p className="text-sm text-slate-400 mt-1">
+          This conversation can&apos;t be accessed due to a block between you and this person.
+        </p>
+        <Link href="/dashboard/messages" className="mt-4 text-sm text-purple-600 hover:underline">
+          Back to messages
+        </Link>
+      </div>
+    )
+  }
+
   if (!loading && notFound) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -457,7 +486,7 @@ export default function ChatPage({ params }: { params: { connectionId: string } 
             onKeyDown={handleKeyDown}
             rows={1}
             placeholder="Type a message…"
-            disabled={loading || notFound || notAccepted}
+            disabled={loading || notFound || notAccepted || isBlocked}
             className="flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50
                        px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400
                        focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent

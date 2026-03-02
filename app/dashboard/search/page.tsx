@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { toast } from '@/components/ui/toaster'
-import { cn } from '@/lib/utils'
+import { cn, getBlockedProfileIds } from '@/lib/utils'
 import { DICEBEAR_BASE_URL } from '@/lib/constants'
 import type { Profile } from '@/types'
 
@@ -234,11 +234,12 @@ export default function SearchPage() {
 
   // Shared
   const [connectedIds, setConnectedIds]   = useState<Set<string>>(new Set())
+  const [blockedIds,   setBlockedIds]     = useState<Set<string>>(new Set())
   const [connectingId, setConnectingId]   = useState<string | null>(null)
 
   const nameDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load connected IDs on mount
+  // Load connected IDs + blocked IDs on mount
   useEffect(() => {
     async function init() {
       const supabase = createBrowserClient()
@@ -253,17 +254,22 @@ export default function SearchPage() {
 
       if (!vp) return
 
-      const { data: connections } = await supabase
-        .from('connections')
-        .select('requester_id, receiver_id')
-        .or(`requester_id.eq.${vp.id},receiver_id.eq.${vp.id}`)
+      const [connections, blockedArr] = await Promise.all([
+        supabase
+          .from('connections')
+          .select('requester_id, receiver_id')
+          .or(`requester_id.eq.${vp.id},receiver_id.eq.${vp.id}`)
+          .then((r) => r.data ?? []),
+        getBlockedProfileIds(supabase, vp.id),
+      ])
 
       const connected = new Set<string>()
-      for (const c of connections ?? []) {
+      for (const c of connections) {
         const otherId = c.requester_id === vp.id ? c.receiver_id : c.requester_id
         connected.add(otherId)
       }
       setConnectedIds(connected)
+      setBlockedIds(new Set(blockedArr))
     }
     init()
   }, [])
@@ -306,11 +312,12 @@ export default function SearchPage() {
         .eq('is_public', true)
         .ilike('name', `%${q}%`)
         .limit(20)
-      setNameResults((data ?? []) as Profile[])
+      const filtered = ((data ?? []) as Profile[]).filter((p) => !blockedIds.has(p.id))
+      setNameResults(filtered)
     } finally {
       setNameSearching(false)
     }
-  }, [])
+  }, [blockedIds])
 
   useEffect(() => {
     if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)

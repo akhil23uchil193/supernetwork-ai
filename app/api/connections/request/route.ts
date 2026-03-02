@@ -77,13 +77,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: connErr?.message ?? 'Failed to create connection.' }, { status: 500 })
   }
 
-  // Notify receiver
-  await supabase.from('notifications').insert({
-    user_id: receiver_profile_id,
-    type: 'connection_request',
-    content: `${viewerProfile.name ?? 'Someone'} wants to connect with you`,
-    reference_id: connection.id,
-  })
+  // Notify receiver — skip if a block exists (already verified above, but guard explicitly)
+  if (!block) {
+    await supabase.from('notifications').insert({
+      user_id: receiver_profile_id,
+      type: 'connection_request',
+      content: `${viewerProfile.name ?? 'Someone'} wants to connect with you`,
+      reference_id: connection.id,
+    })
+  }
 
   return NextResponse.json({ success: true, connection_id: connection.id })
 }

@@ -49,6 +49,20 @@ export async function POST(request: NextRequest) {
   const receiverProfileId =
     conn.requester_id === senderProfile.id ? conn.receiver_id : conn.requester_id
 
+  // Skip notification if a block exists in either direction
+  const { data: blockForNotif } = await supabase
+    .from('blocks')
+    .select('id')
+    .or(
+      `and(blocker_id.eq.${senderProfile.id},blocked_id.eq.${receiverProfileId}),` +
+      `and(blocker_id.eq.${receiverProfileId},blocked_id.eq.${senderProfile.id})`
+    )
+    .maybeSingle()
+
+  if (blockForNotif) {
+    return NextResponse.json({ success: true })
+  }
+
   // Use service role to bypass RLS INSERT restriction on notifications
   const admin = createServiceRoleClient()
   await admin.from('notifications').insert({
