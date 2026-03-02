@@ -6,6 +6,21 @@ const nextConfig = {
   // below is a belt-and-suspenders fallback in case the cache is stale.
   serverExternalPackages: ['pdf-parse', 'pdfjs-dist'],
 
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'api.dicebear.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
+    ],
+  },
+
   webpack(config, { isServer }) {
     if (isServer) {
       // Explicitly mark pdf-parse and every pdfjs-dist/* subpath as a

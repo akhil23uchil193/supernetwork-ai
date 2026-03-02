@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   LogOut,
+  MoreHorizontal,
 } from 'lucide-react'
 
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -279,9 +280,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     )
   }
 
+  // Hide the bottom nav on individual chat pages (they have their own sticky input)
+  const isChat = pathname.startsWith('/dashboard/messages/') && pathname !== '/dashboard/messages'
+
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      {/* ── Mobile overlay ─────────────────────────────────────────────────── */}
+      {/* ── Mobile slide-over overlay (settings menu) ──────────────────────── */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/40 z-30 lg:hidden"
@@ -289,7 +293,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
 
-      {/* ── Sidebar ────────────────────────────────────────────────────────── */}
+      {/* ── Sidebar (desktop always visible; mobile: settings slide-over) ─── */}
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-slate-200 flex flex-col transition-transform duration-200',
@@ -360,23 +364,60 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* ── Main area ──────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Mobile top bar */}
-        <header className="lg:hidden h-14 bg-white border-b border-slate-200 flex items-center px-4 gap-3 shrink-0">
+        {/* Mobile top bar — slim logo + settings/more button */}
+        <header className="lg:hidden h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 shrink-0">
+          <span className="text-base font-bold text-purple-600">SuperNetworkAI</span>
           <button
             onClick={() => setSidebarOpen(true)}
             className="p-1.5 rounded hover:bg-slate-100 text-slate-600"
-            aria-label="Open menu"
+            aria-label="Open settings"
           >
-            <Menu className="w-5 h-5" />
+            <MoreHorizontal className="w-5 h-5" />
           </button>
-          <span className="text-base font-bold text-purple-600">SuperNetworkAI</span>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        {/* Page content — extra bottom padding on mobile so bottom nav doesn't overlap */}
+        <main className={cn(
+          'flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8',
+          isChat ? '' : 'pb-24 lg:pb-8'
+        )}>
           {children}
         </main>
       </div>
+
+      {/* ── Mobile bottom navigation (hidden on chat pages) ─────────────────── */}
+      {!isChat && (
+      <nav
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 flex items-stretch h-16"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        {navItems.map((item) => {
+          const active = pathname.startsWith(item.href)
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex-1 flex flex-col items-center justify-center gap-0.5 relative transition-colors',
+                active ? 'text-purple-600' : 'text-slate-400 hover:text-slate-600'
+              )}
+            >
+              <span className="relative">
+                {item.icon}
+                {typeof item.badge === 'number' && item.badge > 0 && (
+                  <span className="absolute -top-1 -right-1.5 min-w-[14px] h-[14px] bg-purple-600 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </span>
+                )}
+              </span>
+              <span className={cn('text-[10px] font-medium leading-none', active ? 'text-purple-600' : 'text-slate-400')}>
+                {item.label === 'My Matches' ? 'Matches' : item.label}
+              </span>
+            </Link>
+          )
+        })}
+      </nav>
+      )}
     </div>
   )
 }

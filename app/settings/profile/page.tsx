@@ -404,6 +404,7 @@ export default function SettingsProfilePage() {
       toast('Profile updated!', 'success')
 
       if (significantChanged) {
+        toast('Match computation started — results update shortly.', 'info')
         fetch('/api/matches/compute', { method: 'POST' }).catch(console.error)
       }
 
