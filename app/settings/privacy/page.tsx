@@ -11,10 +11,12 @@ import type { Profile } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type BlockedProfile = Pick<Profile, 'id' | 'name' | 'image_url' | 'intent'>
+
 interface BlockedUser {
   blockId:   string
   blockedId: string
-  profile:   Profile | null
+  profile:   BlockedProfile | null
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -53,7 +55,6 @@ export default function PrivacyPage() {
       .order('created_at', { ascending: false })
 
     // Step 2: fetch each blocked profile individually (may be null if RLS still hides it)
-    type BlockedProfile = Pick<Profile, 'id' | 'name' | 'image_url' | 'intent'>
     const blockedUsersData: BlockedUser[] = await Promise.all(
       (blockRecords ?? []).map(async (block) => {
         const { data: blockedProfile } = await supabase

@@ -12,7 +12,6 @@ import {
   Bell,
   Settings,
   Shield,
-  Menu,
   X,
   LogOut,
   MoreHorizontal,

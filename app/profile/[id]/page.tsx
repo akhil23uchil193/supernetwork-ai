@@ -3,7 +3,7 @@ import Link from 'next/link'
 import {
   Globe, Linkedin, Github, Twitter,
   Heart, Sparkles, Globe2, Banknote, Compass,
-  Clock, Zap, Calendar, Layers, MessageSquareMore,
+  Clock, Layers, MessageSquareMore,
   LogIn, ChevronDown,
 } from 'lucide-react'
 import { createServerClient, createServiceRoleClient } from '@/lib/supabase/server'
