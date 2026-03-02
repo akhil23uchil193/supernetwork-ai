@@ -21,6 +21,15 @@ export async function getBlockedProfileIds(supabase: any, currentProfileId: stri
   return Array.from(new Set(ids))
 }
 
+// Replaces the viewer's own name with "You"/"Your" in AI-generated match explanations
+export function formatExplanation(explanation: string, currentUserName: string): string {
+  const firstName = currentUserName.split(' ')[0]
+  if (!firstName) return explanation
+  return explanation
+    .replace(new RegExp(`\\b${firstName}'s\\b`, 'gi'), 'Your')
+    .replace(new RegExp(`\\b${firstName}\\b`, 'gi'), 'You')
+}
+
 export function calculateProfileCompletionScore(profile: Partial<Profile>): number {
   let score = 0
 

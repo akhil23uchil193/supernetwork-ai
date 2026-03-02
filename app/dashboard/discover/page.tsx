@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { toast } from '@/components/ui/toaster'
-import { cn } from '@/lib/utils'
+import { cn, formatExplanation } from '@/lib/utils'
 import { DICEBEAR_BASE_URL } from '@/lib/constants'
 import type { Profile } from '@/types'
 
@@ -106,9 +106,10 @@ interface MatchCardProps {
   card: DiscoverCard
   expanded: boolean
   onToggleExpanded: () => void
+  viewerName: string
 }
 
-function MatchCard({ card, expanded, onToggleExpanded }: MatchCardProps) {
+function MatchCard({ card, expanded, onToggleExpanded, viewerName }: MatchCardProps) {
   const { profile, score, one_liner, explanation } = card
   const scorePercent = Math.round(score * 100)
 
@@ -237,10 +238,10 @@ function MatchCard({ card, expanded, onToggleExpanded }: MatchCardProps) {
             <div
               className={cn(
                 'overflow-hidden transition-all duration-300 ease-in-out',
-                expanded ? 'max-h-40 mt-3 opacity-100' : 'max-h-0 opacity-0'
+                expanded ? 'max-h-none mt-3 opacity-100' : 'max-h-0 opacity-0'
               )}
             >
-              <p className="text-sm text-slate-600 leading-relaxed">{explanation}</p>
+              <p className="text-sm text-slate-600 leading-relaxed">{formatExplanation(explanation, viewerName)}</p>
             </div>
           </div>
         )}
@@ -277,6 +278,7 @@ export default function DiscoverPage() {
   const [fading, setFading]             = useState(false)
   const [connecting, setConnecting]     = useState(false)
   const [expandedExpl, setExpandedExpl] = useState(false)
+  const [viewerName, setViewerName]     = useState('')
 
   // Reset accordion when card changes
   useEffect(() => { setExpandedExpl(false) }, [index])
@@ -292,13 +294,14 @@ export default function DiscoverPage() {
     // Get viewer's profile
     const { data: viewerProfile } = await supabase
       .from('profiles')
-      .select('id')
+      .select('id, name')
       .eq('user_id', session.user.id)
       .maybeSingle()
 
     if (!viewerProfile) { setLoading(false); return }
 
     const profileId = viewerProfile.id
+    setViewerName(viewerProfile.name ?? '')
 
     // Parallel: matches + connections + blocks
     const [matchesRes, connectionsRes, blocksRes] = await Promise.all([
@@ -314,7 +317,7 @@ export default function DiscoverPage() {
         `)
         .eq('user_id', profileId)
         .order('score', { ascending: false })
-        .limit(50),
+        .limit(25),
 
       supabase
         .from('connections')
@@ -392,17 +395,11 @@ export default function DiscoverPage() {
   if (loading) return <LoadingSkeleton />
 
   const currentCard = cards[index]
-  const remaining   = cards.length - index
 
   if (!currentCard) return <EmptyState />
 
   return (
     <div className="max-w-md mx-auto py-4 sm:py-8 flex flex-col gap-4">
-
-      {/* Counter */}
-      <p className="text-center text-sm text-slate-400 font-medium">
-        {remaining} {remaining === 1 ? 'person matches' : 'people match'} your criteria
-      </p>
 
       {/* Card with fade transition */}
       <div
@@ -415,6 +412,7 @@ export default function DiscoverPage() {
           card={currentCard}
           expanded={expandedExpl}
           onToggleExpanded={() => setExpandedExpl((e) => !e)}
+          viewerName={viewerName}
         />
       </div>
 

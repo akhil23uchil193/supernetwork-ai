@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { createServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getMatchWithExplanation } from '@/lib/matches'
-import { cn } from '@/lib/utils'
+import { cn, formatExplanation } from '@/lib/utils'
 import { DICEBEAR_BASE_URL } from '@/lib/constants'
 import ProfileActions from '@/components/profile-actions'
 import ProfileMenu from '@/components/profile-menu'
@@ -79,6 +79,7 @@ export default async function ProfilePage({ params }: { params: { id: string } }
 
   // ── Viewer-specific data (match + connection) ──────────────────────────────
   let viewerProfileId: string | null = null
+  let viewerName:       string | null = null
   let matchScore:       number | null = null
   let matchOneLiner:    string | null = null
   let matchExplanation: string | null = null
@@ -88,11 +89,12 @@ export default async function ProfilePage({ params }: { params: { id: string } }
   if (isLoggedIn && !isOwner) {
     const { data: vp } = await admin
       .from('profiles')
-      .select('id')
+      .select('id, name')
       .eq('user_id', session!.user.id)
       .maybeSingle()
 
     viewerProfileId = vp?.id ?? null
+    viewerName = vp?.name ?? null
 
     if (viewerProfileId) {
       // Check for block in either direction — blocked profiles are inaccessible
@@ -290,7 +292,7 @@ export default async function ProfilePage({ params }: { params: { id: string } }
                       <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
                     </summary>
                     <p className="mt-2 text-sm text-slate-600 leading-relaxed pl-0.5">
-                      {matchExplanation}
+                      {viewerName ? formatExplanation(matchExplanation, viewerName) : matchExplanation}
                     </p>
                   </details>
                 )}
